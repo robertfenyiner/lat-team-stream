@@ -17,7 +17,7 @@
   <p>Introduce la URL del <em>playlist</em> m3u8 (por defecto apunta a <code>http://localhost:8080/hls/stream.m3u8</code>).</p>
 
   <div>
-    <input id="url" type="text" value="http://localhost:8080/hls/stream.m3u8" />
+  <input id="url" type="text" />
     <button id="load">Cargar</button>
     <button id="play">Play</button>
     <button id="pause">Pause</button>
@@ -75,8 +75,10 @@
     playBtn.addEventListener('click', ()=>{ video.play(); });
     pauseBtn.addEventListener('click', ()=>{ video.pause(); });
 
-    // Auto attach default
-    attach(urlInput.value.trim());
+  // Auto attach default using the same host as the page but port 8080 and index.m3u8
+  const defaultUrl = `${location.protocol}//${location.hostname}:8080/hls/stream/index.m3u8`;
+  urlInput.value = defaultUrl;
+  attach(urlInput.value.trim());
   </script>
 </body>
 </html>
