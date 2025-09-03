@@ -3,26 +3,26 @@
 Este documento contiene pasos rápidos para desplegar y probar localmente la solución de streaming en un VPS Ubuntu 22.04.
 
 Resumen rápido
-- Montar tu remoto rclone `imagenes` en `/mnt/imagenes`.
+- Montar tu remoto rclone `google` en `/mnt/google`.
 - Asegurar `/var/hls` y configurar nginx (archivo `nginx.conf` en este repo está preparado para escuchar en el puerto 8080).
 - Copiar `scripts/stream.sh` a `/usr/local/bin/stream.sh`, hacerlo ejecutable y lanzar manualmente o via `systemd`.
 - Abrir `web/test.html` en un navegador (o copiar al servidor web) para probar el HLS.
 
 1) Preparar rclone mount
 
-Si ya tienes rclone configurado y el remoto se llama `imagenes` (como mostraste), usa el unit systemd incluido:
+Si ya tienes rclone configurado y el remoto se llama `google` (como mostraste), usa el unit systemd incluido:
 
 ```bash
-sudo mkdir -p /mnt/imagenes
+sudo mkdir -p /mnt/google
 sudo systemctl daemon-reload
 sudo cp systemd/rclone-mount@.service /etc/systemd/system/rclone-mount@.service
-sudo systemctl enable --now rclone-mount@imagenes.service
+sudo systemctl enable --now rclone-mount@google.service
 ```
 
 Verifica que el montaje esté disponible:
 
 ```bash
-ls -lah /mnt/imagenes
+ls -lah /mnt/google
 ```
 
 2) Preparar carpeta HLS y nginx
@@ -55,11 +55,11 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now stream.service
 
 # Si prefieres probar manualmente, crea una playlist dentro del montaje rclone:
-echo "/mnt/imagenes/video1.mp4" > /mnt/imagenes/playlist.txt
+echo "/mnt/google/video1.mp4" > /mnt/google/playlist.txt
 # Ajusta la ruta a tus archivos reales dentro del montaje
 
 # Lanzar manualmente (para ver logs en la terminal):
-/usr/local/bin/stream.sh /mnt/imagenes/playlist.txt rtmp://localhost:1935/live/stream
+/usr/local/bin/stream.sh /mnt/google/playlist.txt rtmp://localhost:1935/live/stream
 
 # O ver logs si iniciaste el servicio
 sudo journalctl -u stream.service -f

@@ -5,8 +5,8 @@ After=network-online.target
 [Service]
 Type=simple
 # Ajusta la ruta al script y la lista de reproducción
-# This service assumes the rclone mount is available at /mnt/imagenes
-ExecStart=/usr/local/bin/stream.sh /mnt/imagenes/playlist.txt rtmp://localhost:1935/live/stream
+# This service assumes the rclone mount is available at /mnt/google
+ExecStart=/usr/local/bin/stream.sh /mnt/google/playlist.txt rtmp://localhost:1935/live/stream
 Restart=always
 RestartSec=5
 User=root
