@@ -1,0 +1,12 @@
+[Unit]
+Description=FFmpeg loop broadcaster
+After=network-online.target
+
+[Service]
+Type=simple
+# Ajusta la ruta al script y la lista de reproducción
+ExecStart=/usr/local/bin/stream.sh /mnt/onedrive/playlist.txt rtmp://localhost:1935/live/stream
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
