@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Prueba HLS - lat-team-stream</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;padding:18px}
+    input[type=text]{width:70%;padding:8px}
+    button{padding:8px 12px;margin-left:6px}
+    #logs{white-space:pre-wrap;background:#111;color:#bfb;padding:12px;margin-top:12px;height:160px;overflow:auto}
+    video{width:100%;max-width:900px;margin-top:12px;background:#000}
+  </style>
+</head>
+<body>
+  <h1>Prueba HLS</h1>
+  <p>Introduce la URL del <em>playlist</em> m3u8 (por defecto apunta a <code>http://localhost:8080/hls/stream.m3u8</code>).</p>
+
+  <div>
+    <input id="url" type="text" value="http://localhost:8080/hls/stream.m3u8" />
+    <button id="load">Cargar</button>
+    <button id="play">Play</button>
+    <button id="pause">Pause</button>
+  </div>
+
+  <video id="player" controls muted playsinline></video>
+
+  <h3>Logs de player</h3>
+  <div id="logs">Listo.</div>
+
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script>
+    const urlInput = document.getElementById('url');
+    const loadBtn = document.getElementById('load');
+    const playBtn = document.getElementById('play');
+    const pauseBtn = document.getElementById('pause');
+    const logs = document.getElementById('logs');
+    const video = document.getElementById('player');
+    let hls = null;
+
+    function log(msg){
+      const time = new Date().toLocaleTimeString();
+      logs.textContent += `[${time}] ${msg}\n`;
+      logs.scrollTop = logs.scrollHeight;
+    }
+
+    function attach(url){
+      if(hls){
+        try{ hls.destroy(); } catch(e){}
+        hls = null;
+      }
+
+      if(Hls.isSupported()){
+        hls = new Hls({
+          maxBufferLength: 30,
+          enableWorker: true
+        });
+        hls.on(Hls.Events.ERROR, function(event, data){
+          log('HLS error: ' + data.type + ' - ' + data.details);
+        });
+        hls.attachMedia(video);
+        hls.loadSource(url);
+        hls.on(Hls.Events.MANIFEST_PARSED, function(){
+          log('Manifest parsed, can play.');
+        });
+      } else if(video.canPlayType('application/vnd.apple.mpegurl')){
+        video.src = url;
+        log('Using native HLS support');
+      } else {
+        log('HLS no soportado por este navegador');
+      }
+    }
+
+    loadBtn.addEventListener('click', ()=>{ attach(urlInput.value.trim()); log('Cargando: '+urlInput.value.trim()); });
+    playBtn.addEventListener('click', ()=>{ video.play(); });
+    pauseBtn.addEventListener('click', ()=>{ video.pause(); });
+
+    // Auto attach default
+    attach(urlInput.value.trim());
+  </script>
+</body>
+</html>

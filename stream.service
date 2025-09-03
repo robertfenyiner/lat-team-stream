@@ -5,8 +5,14 @@ After=network-online.target
 [Service]
 Type=simple
 # Ajusta la ruta al script y la lista de reproducción
-ExecStart=/usr/local/bin/stream.sh /mnt/onedrive/playlist.txt rtmp://localhost:1935/live/stream
+# This service assumes the rclone mount is available at /mnt/imagenes
+ExecStart=/usr/local/bin/stream.sh /mnt/imagenes/playlist.txt rtmp://localhost:1935/live/stream
 Restart=always
+RestartSec=5
+User=root
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=ffmpeg-stream
 
 [Install]
 WantedBy=multi-user.target

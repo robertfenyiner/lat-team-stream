@@ -1,0 +1,19 @@
+[Unit]
+Description=Rclone mount for %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+Environment=RCLONE_CONFIG=/root/.config/rclone/rclone.conf
+ExecStart=/usr/bin/rclone mount %i: /mnt/%i \
+  --config=/root/.config/rclone/rclone.conf \
+  --allow-other --vfs-cache-mode writes --vfs-cache-max-size 1G --umask 002
+ExecStop=/bin/fusermount -uz /mnt/%i
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
