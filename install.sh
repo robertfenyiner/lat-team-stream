@@ -259,40 +259,150 @@ install_basic_dependencies() {
 install_ffmpeg() {
     log "INFO" "${BLUE}🎥 Instalando FFmpeg...${NC}"
     
-    # Agregar repositorio para FFmpeg actualizado
-    add-apt-repository ppa:savoury1/ffmpeg4 -y -qq
-    apt update -qq
-    
-    # Instalar FFmpeg
-    apt install -y -qq ffmpeg
-    
-    # Verificar instalación
-    if ffmpeg -version >/dev/null 2>&1; then
+    # Intentar instalar FFmpeg del repositorio oficial primero
+    log "INFO" "${BLUE}📦 Intentando instalación desde repositorio oficial...${NC}"
+    if apt install -y -qq ffmpeg; then
         local version=$(ffmpeg -version 2>&1 | head -n1 | cut -d' ' -f3)
-        log "INFO" "${GREEN}✅ FFmpeg instalado: $version${NC}"
+        log "INFO" "${GREEN}✅ FFmpeg instalado desde repositorio oficial: $version${NC}"
+        return 0
+    fi
+    
+    # Si falla, intentar agregar PPA con FFmpeg más reciente
+    log "INFO" "${BLUE}📦 Intentando PPA de FFmpeg...${NC}"
+    
+    # Agregar repositorio para FFmpeg actualizado
+    if add-apt-repository ppa:savoury1/ffmpeg4 -y; then
+        apt update -qq
+        
+        # Instalar FFmpeg del PPA
+        if apt install -y -qq ffmpeg; then
+            local version=$(ffmpeg -version 2>&1 | head -n1 | cut -d' ' -f3)
+            log "INFO" "${GREEN}✅ FFmpeg instalado desde PPA: $version${NC}"
+            return 0
+        fi
+    fi
+    
+    # Si todo falla, mostrar error y sugerencias
+    log "ERROR" "${RED}❌ Error instalando FFmpeg${NC}"
+    echo ""
+    echo -e "${YELLOW}💡 Soluciones alternativas:${NC}"
+    echo "   1. Instalar manualmente:"
+    echo "      apt update && apt install ffmpeg"
+    echo ""
+    echo "   2. Compilar desde fuente:"
+    echo "      https://ffmpeg.org/download.html#build-linux"
+    echo ""
+    echo "   3. Usar snap:"
+    echo "      snap install ffmpeg"
+    echo ""
+    
+    read -p "¿Continuar sin FFmpeg? (NO recomendado) (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        log "WARN" "${YELLOW}⚠️  Continuando sin FFmpeg - el streaming no funcionará${NC}"
+        return 0
     else
-        log "ERROR" "${RED}❌ Error instalando FFmpeg${NC}"
         exit 1
     fi
 }
 
-# Función para instalar Nginx con RTMP
-install_nginx() {
-    log "INFO" "${BLUE}🌐 Instalando Nginx con módulo RTMP...${NC}"
+# Función para instalar nginx-rtmp
+install_nginx_rtmp() {
+    log "INFO" "${BLUE}🌐 Instalando nginx y nginx-rtmp...${NC}"
     
-    # Instalar Nginx y módulo RTMP
-    apt install -y -qq nginx libnginx-mod-rtmp
-    
-    # Verificar instalación
-    if nginx -V 2>&1 | grep -q "rtmp"; then
-        log "INFO" "${GREEN}✅ Nginx con módulo RTMP instalado${NC}"
+    # Intentar instalación estándar
+    if apt install -y -qq nginx libnginx-mod-rtmp; then
+        log "INFO" "${GREEN}✅ nginx-rtmp instalado desde repositorio oficial${NC}"
     else
-        log "ERROR" "${RED}❌ Error: Nginx no tiene módulo RTMP${NC}"
-        exit 1
+        log "WARN" "${YELLOW}⚠️  nginx-rtmp no disponible en repositorio oficial${NC}"
+        log "INFO" "${BLUE}📦 Intentando nginx básico + compilación manual...${NC}"
+        
+        # Instalar nginx básico
+        if ! apt install -y -qq nginx; then
+            log "ERROR" "${RED}❌ Error instalando nginx básico${NC}"
+            echo ""
+            echo -e "${YELLOW}💡 Instalar manualmente:${NC}"
+            echo "   apt install nginx"
+            exit 1
+        fi
+        
+        # Instalar dependencias para compilar nginx-rtmp
+        apt install -y -qq build-essential libpcre3-dev libssl-dev zlib1g-dev
+        
+        # Crear directorio temporal
+        mkdir -p /tmp/nginx-rtmp-build
+        cd /tmp/nginx-rtmp-build
+        
+        log "INFO" "${BLUE}📥 Descargando nginx-rtmp-module...${NC}"
+        if wget -q https://github.com/arut/nginx-rtmp-module/archive/master.zip; then
+            unzip -q master.zip
+            
+            # Obtener versión de nginx instalada
+            local nginx_version=$(nginx -v 2>&1 | cut -d'/' -f2)
+            
+            log "INFO" "${BLUE}📥 Descargando código fuente de nginx $nginx_version...${NC}"
+            if wget -q http://nginx.org/download/nginx-$nginx_version.tar.gz; then
+                tar -xzf nginx-$nginx_version.tar.gz
+                cd nginx-$nginx_version
+                
+                # Obtener configuración actual de nginx
+                local nginx_config=$(nginx -V 2>&1 | grep "configure arguments" | cut -d: -f2-)
+                
+                log "INFO" "${BLUE}🔧 Compilando nginx con módulo RTMP...${NC}"
+                ./configure $nginx_config --add-dynamic-module=../nginx-rtmp-module-master
+                
+                if make modules; then
+                    # Copiar módulo compilado
+                    cp objs/ngx_rtmp_module.so /usr/lib/nginx/modules/
+                    
+                    # Agregar carga del módulo a nginx.conf
+                    if ! grep -q "load_module.*ngx_rtmp_module" /etc/nginx/nginx.conf; then
+                        sed -i '1i load_module modules/ngx_rtmp_module.so;' /etc/nginx/nginx.conf
+                    fi
+                    
+                    log "INFO" "${GREEN}✅ nginx-rtmp compilado e instalado${NC}"
+                else
+                    log "ERROR" "${RED}❌ Error compilando nginx-rtmp${NC}"
+                    manual_rtmp_instructions
+                fi
+            else
+                log "ERROR" "${RED}❌ Error descargando código fuente de nginx${NC}"
+                manual_rtmp_instructions
+            fi
+        else
+            log "ERROR" "${RED}❌ Error descargando nginx-rtmp-module${NC}"
+            manual_rtmp_instructions
+        fi
+        
+        # Limpiar
+        cd /
+        rm -rf /tmp/nginx-rtmp-build
     fi
     
-    # Detener nginx por ahora
-    systemctl stop nginx
+    # Verificar instalación
+    if nginx -V 2>&1 | grep -q rtmp; then
+        log "INFO" "${GREEN}✅ nginx-rtmp configurado correctamente${NC}"
+    else
+        log "WARN" "${YELLOW}⚠️  nginx-rtmp podría no estar disponible${NC}"
+        echo ""
+        echo -e "${YELLOW}💡 El streaming básico seguirá funcionando con HLS${NC}"
+    fi
+}
+
+manual_rtmp_instructions() {
+    echo ""
+    echo -e "${YELLOW}💡 Instalación manual de nginx-rtmp:${NC}"
+    echo "   1. Seguir guía oficial:"
+    echo "      https://github.com/arut/nginx-rtmp-module"
+    echo ""
+    echo "   2. Usar Docker (alternativa):"
+    echo "      docker run -d -p 1935:1935 -p 8080:8080 tiangolo/nginx-rtmp"
+    echo ""
+    read -p "¿Continuar sin nginx-rtmp? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        exit 1
+    fi
 }
 
 # Función para instalar Rclone
@@ -684,7 +794,7 @@ main() {
     update_system
     install_basic_dependencies
     install_ffmpeg
-    install_nginx
+    install_nginx_rtmp
     install_rclone
     
     # Configuración del proyecto
