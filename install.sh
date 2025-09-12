@@ -21,6 +21,8 @@ LOG_FILE="/var/log/lat-stream-install.log"
 BACKUP_DIR="/root/lat-stream-backup-$(date +%Y%m%d-%H%M%S)"
 REPO_URL="https://github.com/robertfenyiner/lat-team-stream.git"
 REPO_BRANCH="main"
+OFFLINE_MODE=false
+SKIP_NETWORK_CHECK=false
 
 # Función de logging
 log() {
@@ -62,16 +64,122 @@ check_requirements() {
         exit 1
     fi
     
-    # Verificar conexión a internet
-    if ! ping -c 1 google.com &> /dev/null; then
-        log "ERROR" "${RED}❌ No hay conexión a internet${NC}"
+# Función para verificar requisitos
+check_requirements() {
+    log "INFO" "${BLUE}🔍 Verificando requisitos del sistema...${NC}"
+    
+    # Verificar Ubuntu 22.04
+    if ! grep -q "22.04" /etc/lsb-release 2>/dev/null; then
+        log "WARN" "${YELLOW}⚠️  Este script está optimizado para Ubuntu 22.04 LTS${NC}"
+        echo "Sistema detectado: $(lsb_release -d 2>/dev/null | cut -f2 || echo "Desconocido")"
+        read -p "¿Continuar de todas formas? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+    fi
+    
+    # Verificar usuario root
+    if [ "$EUID" -ne 0 ]; then
+        log "ERROR" "${RED}❌ Este script debe ejecutarse como root${NC}"
+        echo "Ejecuta con: sudo $0"
         exit 1
+    fi
+    
+    # Verificar conexión a internet (solo si no se omite)
+    if [ "$SKIP_NETWORK_CHECK" = false ]; then
+        log "INFO" "${BLUE}🌐 Verificando conexión a internet...${NC}"
+        
+        # Función para probar conectividad
+        test_connectivity() {
+            local host="$1"
+            local description="$2"
+            
+            if ping -c 1 -W 5 "$host" &> /dev/null; then
+                log "INFO" "${GREEN}✅ Conectividad OK - $description${NC}"
+                return 0
+            else
+                log "WARN" "${YELLOW}⚠️  No se puede conectar a $description ($host)${NC}"
+                return 1
+            fi
+        }
+        
+        # Probar múltiples servidores
+        connectivity_ok=false
+        
+        # Probar Google DNS
+        if test_connectivity "8.8.8.8" "Google DNS"; then
+            connectivity_ok=true
+        fi
+        
+        # Probar Cloudflare DNS si Google falla
+        if [ "$connectivity_ok" = false ] && test_connectivity "1.1.1.1" "Cloudflare DNS"; then
+            connectivity_ok=true
+        fi
+        
+        # Probar resolución DNS
+        if [ "$connectivity_ok" = true ]; then
+            if nslookup google.com &> /dev/null; then
+                log "INFO" "${GREEN}✅ Resolución DNS funcionando${NC}"
+            else
+                log "WARN" "${YELLOW}⚠️  Problemas con resolución DNS${NC}"
+            fi
+        fi
+        
+        # Si no hay conectividad, dar opciones
+        if [ "$connectivity_ok" = false ]; then
+            log "ERROR" "${RED}❌ No se puede verificar conexión a internet${NC}"
+            echo ""
+            echo -e "${YELLOW}💡 Opciones disponibles:${NC}"
+            echo "   1. Verificar y arreglar la red, luego reintentar"
+            echo "   2. Ejecutar diagnóstico: bash <(wget -qO- https://raw.githubusercontent.com/robertfenyiner/lat-team-stream/main/scripts/diagnostico.sh)"
+            echo "   3. Continuar sin verificar red (puede fallar)"
+            echo "   4. Usar modo offline (requiere archivos locales)"
+            echo ""
+            echo -e "${BLUE}Comandos de diagnóstico rápido:${NC}"
+            echo "   • ip addr show"
+            echo "   • ip route show"
+            echo "   • cat /etc/resolv.conf"
+            echo "   • systemctl restart networking"
+            echo ""
+            
+            read -p "¿Qué deseas hacer? (1=Salir, 2=Diagnóstico, 3=Continuar, 4=Offline): " -n 1 -r
+            echo
+            case $REPLY in
+                1|""|"N"|"n")
+                    log "INFO" "${BLUE}Instalación cancelada. Arregla la red y reintenta.${NC}"
+                    exit 0
+                    ;;
+                2)
+                    log "INFO" "${BLUE}Ejecutando diagnóstico...${NC}"
+                    bash <(curl -fsSL https://raw.githubusercontent.com/robertfenyiner/lat-team-stream/main/scripts/diagnostico.sh) || {
+                        echo "No se pudo descargar el diagnóstico. Verifica la conectividad."
+                        exit 1
+                    }
+                    exit 0
+                    ;;
+                3|"Y"|"y")
+                    log "WARN" "${YELLOW}⚠️  Continuando sin verificar conectividad${NC}"
+                    SKIP_NETWORK_CHECK=true
+                    ;;
+                4)
+                    log "INFO" "${BLUE}Activando modo offline${NC}"
+                    OFFLINE_MODE=true
+                    SKIP_NETWORK_CHECK=true
+                    ;;
+                *)
+                    log "ERROR" "${RED}Opción inválida${NC}"
+                    exit 1
+                    ;;
+            esac
+        fi
     fi
     
     # Verificar espacio en disco (mínimo 20GB)
     local available_space=$(df / | tail -1 | awk '{print $4}')
     if [ "$available_space" -lt 20971520 ]; then  # 20GB in KB
         log "WARN" "${YELLOW}⚠️  Espacio en disco bajo. Se recomiendan al menos 20GB libres${NC}"
+        echo "Disponible: $(df -h / | tail -1 | awk '{print $4}')"
         read -p "¿Continuar de todas formas? (y/N): " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -80,6 +188,7 @@ check_requirements() {
     fi
     
     log "INFO" "${GREEN}✅ Requisitos del sistema verificados${NC}"
+}
 }
 
 # Función para crear backup
@@ -473,16 +582,56 @@ show_post_install_config() {
 
 # Función para limpiar en caso de error
 cleanup_on_error() {
-    log "ERROR" "${RED}❌ Error durante la instalación${NC}"
+    local exit_code=$?
+    log "ERROR" "${RED}❌ Error durante la instalación (código: $exit_code)${NC}"
+    echo ""
+    echo -e "${YELLOW}� DIAGNÓSTICO RÁPIDO:${NC}"
+    
+    # Mostrar información básica del error
+    case $exit_code in
+        1)
+            echo "   • Error general - revisa los logs arriba"
+            ;;
+        127)
+            echo "   • Comando no encontrado - verifica dependencias"
+            ;;
+        130)
+            echo "   • Instalación cancelada por el usuario"
+            ;;
+        *)
+            echo "   • Error inesperado ($exit_code)"
+            ;;
+    esac
+    
+    echo ""
+    echo -e "${YELLOW}🛠️  SOLUCIONES SUGERIDAS:${NC}"
+    echo "   1. Ejecutar diagnóstico:"
+    echo "      wget -O- https://raw.githubusercontent.com/robertfenyiner/lat-team-stream/main/scripts/diagnostico.sh | bash"
+    echo ""
+    echo "   2. Verificar conexión de red:"
+    echo "      ping -c 3 8.8.8.8"
+    echo "      nslookup google.com"
+    echo ""
+    echo "   3. Actualizar sistema:"
+    echo "      apt update && apt upgrade -y"
+    echo ""
+    echo "   4. Revisar espacio en disco:"
+    echo "      df -h"
     echo ""
     echo -e "${YELLOW}📋 Para obtener ayuda:${NC}"
-    echo "   1. Revisa el log: $LOG_FILE"
-    echo "   2. Verifica los requisitos del sistema"
-    echo "   3. Ejecuta nuevamente el instalador"
+    echo "   1. Revisa el log completo: $LOG_FILE"
+    echo "   2. Crea un issue en: https://github.com/robertfenyiner/lat-team-stream/issues"
+    echo "   3. Incluye la salida del diagnóstico y este log"
     echo ""
     echo -e "${YELLOW}📁 Backups disponibles en: $BACKUP_DIR${NC}"
     echo ""
-    exit 1
+    
+    # Limpiar archivos temporales si existen
+    if [ -d "/tmp/lat-stream-install" ]; then
+        rm -rf "/tmp/lat-stream-install" 2>/dev/null || true
+    fi
+    
+    exit $exit_code
 }
 
 # Función para verificar instalación
@@ -580,22 +729,71 @@ case "${1:-install}" in
             exit 1
         fi
         ;;
+    "diagnosis"|"diag")
+        # Ejecutar diagnóstico
+        if [ -f "scripts/diagnostico.sh" ]; then
+            bash scripts/diagnostico.sh
+        else
+            echo "Descargando diagnóstico..."
+            bash <(curl -fsSL https://raw.githubusercontent.com/robertfenyiner/lat-team-stream/main/scripts/diagnostico.sh)
+        fi
+        ;;
+    "--skip-network"|"-n")
+        SKIP_NETWORK_CHECK=true
+        main
+        ;;
+    "--offline"|"-o")
+        OFFLINE_MODE=true
+        SKIP_NETWORK_CHECK=true
+        main
+        ;;
     "uninstall")
-        echo -e "${YELLOW}🗑️  Función de desinstalación no implementada${NC}"
-        echo "Para desinstalar manualmente:"
-        echo "  systemctl stop multi-stream nginx-stream"
-        echo "  systemctl disable multi-stream nginx-stream"
-        echo "  rm -rf $INSTALL_DIR"
-        echo "  apt remove nginx libnginx-mod-rtmp ffmpeg"
+        echo -e "${YELLOW}🗑️  Desinstalación de LAT Stream${NC}"
+        echo ""
+        read -p "¿Estás seguro? Esto eliminará todos los archivos (y/N): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            echo "Deteniendo servicios..."
+            systemctl stop multi-stream nginx-stream 2>/dev/null || true
+            systemctl disable multi-stream nginx-stream 2>/dev/null || true
+            
+            echo "Eliminando archivos..."
+            rm -rf "$INSTALL_DIR" /var/hls /var/dash /var/www/stream /etc/stream
+            rm -f /etc/systemd/system/multi-stream.service /etc/systemd/system/nginx-stream.service
+            rm -f /etc/systemd/system/rclone-mount@.service /etc/systemd/system/stream-cleanup.*
+            
+            systemctl daemon-reload
+            
+            echo -e "${GREEN}✅ LAT Stream desinstalado${NC}"
+        else
+            echo "Desinstalación cancelada"
+        fi
+        ;;
+    "--help"|"-h"|"help")
+        echo "LAT Team Stream - Instalador v2.0"
+        echo ""
+        echo "Uso: $0 [opción]"
+        echo ""
+        echo "Opciones:"
+        echo "  install            Instalar LAT Stream (por defecto)"
+        echo "  verify             Verificar instalación existente"
+        echo "  status             Mostrar estado del sistema"
+        echo "  diagnosis, diag    Ejecutar diagnóstico del sistema"
+        echo "  --skip-network, -n Omitir verificación de red"
+        echo "  --offline, -o      Modo offline (requiere archivos locales)"
+        echo "  uninstall          Desinstalar completamente"
+        echo "  --help, -h         Mostrar esta ayuda"
+        echo ""
+        echo "Ejemplos:"
+        echo "  $0                 # Instalación normal"
+        echo "  $0 -n              # Instalar omitiendo verificación de red"
+        echo "  $0 diagnosis       # Solo ejecutar diagnóstico"
+        echo "  $0 status          # Ver estado del sistema"
+        echo ""
         ;;
     *)
-        echo "Uso: $0 [install|verify|status|uninstall]"
-        echo ""
-        echo "Comandos:"
-        echo "  install   - Instalar LAT Stream (por defecto)"
-        echo "  verify    - Verificar instalación"
-        echo "  status    - Mostrar estado del sistema"
-        echo "  uninstall - Mostrar cómo desinstalar"
+        echo "Opción desconocida: $1"
+        echo "Usa '$0 --help' para ver opciones disponibles"
         exit 1
         ;;
 esac
