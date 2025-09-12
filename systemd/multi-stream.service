@@ -1,0 +1,37 @@
+[Unit]
+Description=Multi-source streaming service
+After=network-online.target rclone-mount@onedrive.service rclone-mount@gdrive.service rclone-mount@mega.service
+Wants=network-online.target
+Requires=rclone-mount@onedrive.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/lat-stream
+ExecStartPre=/bin/mkdir -p /var/log/stream
+ExecStartPre=/bin/mkdir -p /var/hls
+ExecStartPre=/bin/mkdir -p /var/dash
+ExecStartPre=/bin/mkdir -p /etc/stream
+ExecStart=/opt/lat-stream/scripts/multi-stream.sh start
+ExecStop=/opt/lat-stream/scripts/multi-stream.sh stop
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=multi-stream
+TimeoutStartSec=120
+TimeoutStopSec=30
+
+# Resource limits
+LimitNOFILE=8192
+LimitNPROC=4096
+
+# Security settings
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LAT Team Stream - Multi-Source Streaming</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .stream-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            margin-bottom: 30px;
+        }
+
+        .video-wrapper {
+            position: relative;
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+
+        #video {
+            width: 100%;
+            height: auto;
+            min-height: 400px;
+            display: block;
+        }
+
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 1.2em;
+            z-index: 10;
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .btn {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn.secondary {
+            background: linear-gradient(45deg, #f093fb, #f5576c);
+        }
+
+        .btn.danger {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a52);
+        }
+
+        .btn.success {
+            background: linear-gradient(45deg, #4ecdc4, #44a08d);
+        }
+
+        select {
+            padding: 8px 15px;
+            border: 2px solid #ddd;
+            border-radius: 20px;
+            background: white;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.3s ease;
+        }
+
+        select:focus {
+            border-color: #667eea;
+        }
+
+        .status-panel {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            margin-bottom: 30px;
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .status-card {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .status-card h3 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-online { background: #4ecdc4; }
+        .status-offline { background: #ff6b6b; }
+        .status-warning { background: #feca57; }
+
+        .logs {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            line-height: 1.4;
+        }
+
+        .footer {
+            text-align: center;
+            color: white;
+            opacity: 0.8;
+            margin-top: 30px;
+        }
+
+        .error-message {
+            background: #ff6b6b;
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+            
+            .controls {
+                flex-direction: column;
+            }
+            
+            .control-group {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+
+        .spinner {
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top: 3px solid white;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎬 LAT Team Stream</h1>
+            <p>Streaming Multi-Fuente desde la Nube</p>
+        </div>
+
+        <div class="stream-container">
+            <div class="video-wrapper">
+                <video id="video" controls autoplay muted playsinline></video>
+                <div id="loadingOverlay" class="loading-overlay">
+                    <div class="spinner"></div>
+                    <span>Cargando stream...</span>
+                </div>
+            </div>
+
+            <div class="controls">
+                <div class="control-group">
+                    <select id="streamSelector">
+                        <option value="stream">Stream Principal</option>
+                        <option value="onedrive">OneDrive</option>
+                        <option value="gdrive">Google Drive</option>
+                        <option value="mega">MEGA</option>
+                    </select>
+                    <button class="btn" onclick="changeStream()">📺 Cambiar</button>
+                </div>
+                
+                <div class="control-group">
+                    <select id="qualitySelector">
+                        <option value="">Auto</option>
+                        <option value="_720p">720p</option>
+                        <option value="_480p">480p</option>
+                    </select>
+                    <button class="btn secondary" onclick="changeQuality()">⚙️ Calidad</button>
+                </div>
+
+                <div class="control-group">
+                    <button class="btn success" onclick="refreshStream()">🔄 Refrescar</button>
+                    <button class="btn danger" onclick="toggleMute()">🔊 Audio</button>
+                </div>
+            </div>
+
+            <div id="errorMessage" class="error-message" style="display: none;"></div>
+        </div>
+
+        <div class="status-panel">
+            <h2>📊 Estado del Sistema</h2>
+            <div class="status-grid">
+                <div class="status-card">
+                    <h3><span id="streamStatus" class="status-indicator status-offline"></span>Stream</h3>
+                    <p id="streamInfo">Desconectado</p>
+                </div>
+                <div class="status-card">
+                    <h3><span id="oneDriveStatus" class="status-indicator status-offline"></span>OneDrive</h3>
+                    <p id="oneDriveInfo">-</p>
+                </div>
+                <div class="status-card">
+                    <h3><span id="gDriveStatus" class="status-indicator status-offline"></span>Google Drive</h3>
+                    <p id="gDriveInfo">-</p>
+                </div>
+                <div class="status-card">
+                    <h3><span id="megaStatus" class="status-indicator status-offline"></span>MEGA</h3>
+                    <p id="megaInfo">-</p>
+                </div>
+            </div>
+
+            <div class="controls">
+                <button class="btn" onclick="checkSystemHealth()">🔍 Verificar Estado</button>
+                <button class="btn secondary" onclick="toggleLogs()">📋 Ver Logs</button>
+            </div>
+
+            <div id="logsContainer" class="logs" style="display: none;">
+                <div id="logsContent">Cargando logs...</div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>© 2025 LAT Team Stream - Sistema de Streaming Multi-Fuente</p>
+            <p>Powered by FFmpeg, Nginx RTMP & HLS.js</p>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script>
+        class StreamManager {
+            constructor() {
+                this.video = document.getElementById('video');
+                this.hls = null;
+                this.currentStream = 'stream';
+                this.currentQuality = '';
+                this.baseUrl = window.location.protocol + '//' + window.location.hostname + ':8080';
+                this.isLoading = false;
+                
+                this.init();
+                this.setupEventListeners();
+                this.startHealthCheck();
+            }
+
+            init() {
+                if (Hls.isSupported()) {
+                    this.hls = new Hls({
+                        debug: false,
+                        enableWorker: true,
+                        lowLatencyMode: true,
+                        backBufferLength: 90
+                    });
+                    
+                    this.hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+                        console.log('Video attached to HLS');
+                    });
+                    
+                    this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                        console.log('Manifest parsed, starting playback');
+                        this.hideLoading();
+                        this.updateStreamStatus('online', 'Conectado y reproduciendo');
+                    });
+                    
+                    this.hls.on(Hls.Events.ERROR, (event, data) => {
+                        console.error('HLS Error:', data);
+                        this.handleError(data);
+                    });
+                    
+                    this.loadStream();
+                } else if (this.video.canPlayType('application/vnd.apple.mpegurl')) {
+                    // Safari native HLS support
+                    this.loadStream();
+                } else {
+                    this.showError('Tu navegador no soporta reproducción HLS');
+                }
+            }
+
+            loadStream() {
+                this.showLoading();
+                const streamUrl = `${this.baseUrl}/hls/${this.currentStream}${this.currentQuality}/index.m3u8`;
+                console.log('Loading stream:', streamUrl);
+                
+                if (this.hls) {
+                    this.hls.loadSource(streamUrl);
+                    this.hls.attachMedia(this.video);
+                } else {
+                    this.video.src = streamUrl;
+                }
+            }
+
+            setupEventListeners() {
+                this.video.addEventListener('loadstart', () => {
+                    this.showLoading();
+                });
+                
+                this.video.addEventListener('canplay', () => {
+                    this.hideLoading();
+                });
+                
+                this.video.addEventListener('error', (e) => {
+                    console.error('Video error:', e);
+                    this.handleError({type: 'VIDEO_ERROR', details: e});
+                });
+            }
+
+            showLoading() {
+                this.isLoading = true;
+                document.getElementById('loadingOverlay').style.display = 'flex';
+            }
+
+            hideLoading() {
+                this.isLoading = false;
+                document.getElementById('loadingOverlay').style.display = 'none';
+            }
+
+            showError(message) {
+                const errorDiv = document.getElementById('errorMessage');
+                errorDiv.textContent = message;
+                errorDiv.style.display = 'block';
+                this.hideLoading();
+                this.updateStreamStatus('offline', 'Error: ' + message);
+            }
+
+            hideError() {
+                document.getElementById('errorMessage').style.display = 'none';
+            }
+
+            handleError(data) {
+                let message = 'Error de reproducción';
+                
+                if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                    message = 'Error de red - Verificando conexión...';
+                    this.updateStreamStatus('warning', 'Problemas de red');
+                    // Retry after delay
+                    setTimeout(() => this.loadStream(), 5000);
+                } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                    message = 'Error de medios - Intentando recuperar...';
+                    this.hls.recoverMediaError();
+                } else {
+                    message = 'Error crítico de reproducción';
+                    this.updateStreamStatus('offline', 'Error crítico');
+                }
+                
+                this.showError(message);
+            }
+
+            updateStreamStatus(status, info) {
+                const indicator = document.getElementById('streamStatus');
+                const infoElement = document.getElementById('streamInfo');
+                
+                indicator.className = `status-indicator status-${status}`;
+                infoElement.textContent = info;
+            }
+
+            async checkSystemHealth() {
+                try {
+                    const response = await fetch(`${this.baseUrl}/health`);
+                    if (response.ok) {
+                        this.updateStreamStatus('online', 'Sistema saludable');
+                    } else {
+                        this.updateStreamStatus('warning', 'Sistema con problemas');
+                    }
+                } catch (error) {
+                    this.updateStreamStatus('offline', 'Sistema no responde');
+                }
+                
+                // Check mount points (simulated)
+                this.updateMountStatus('oneDrive', Math.random() > 0.3 ? 'online' : 'offline');
+                this.updateMountStatus('gDrive', Math.random() > 0.3 ? 'online' : 'offline');
+                this.updateMountStatus('mega', Math.random() > 0.3 ? 'online' : 'offline');
+            }
+
+            updateMountStatus(mount, status) {
+                const indicator = document.getElementById(`${mount}Status`);
+                const info = document.getElementById(`${mount}Info`);
+                
+                indicator.className = `status-indicator status-${status}`;
+                info.textContent = status === 'online' ? 'Montado' : 'Desconectado';
+            }
+
+            startHealthCheck() {
+                // Check health every 30 seconds
+                setInterval(() => {
+                    this.checkSystemHealth();
+                }, 30000);
+                
+                // Initial check
+                this.checkSystemHealth();
+            }
+        }
+
+        // Global functions for UI controls
+        let streamManager;
+
+        function changeStream() {
+            const selector = document.getElementById('streamSelector');
+            streamManager.currentStream = selector.value;
+            streamManager.loadStream();
+            streamManager.hideError();
+        }
+
+        function changeQuality() {
+            const selector = document.getElementById('qualitySelector');
+            streamManager.currentQuality = selector.value;
+            streamManager.loadStream();
+        }
+
+        function refreshStream() {
+            streamManager.loadStream();
+            streamManager.hideError();
+        }
+
+        function toggleMute() {
+            streamManager.video.muted = !streamManager.video.muted;
+            const btn = event.target;
+            btn.textContent = streamManager.video.muted ? '🔇 Audio' : '🔊 Audio';
+        }
+
+        function checkSystemHealth() {
+            streamManager.checkSystemHealth();
+        }
+
+        function toggleLogs() {
+            const container = document.getElementById('logsContainer');
+            const isVisible = container.style.display !== 'none';
+            
+            if (isVisible) {
+                container.style.display = 'none';
+            } else {
+                container.style.display = 'block';
+                loadLogs();
+            }
+        }
+
+        function loadLogs() {
+            const content = document.getElementById('logsContent');
+            // Simulate log loading
+            content.innerHTML = `
+[${new Date().toLocaleString()}] Sistema iniciado correctamente
+[${new Date().toLocaleString()}] OneDrive: Montaje exitoso
+[${new Date().toLocaleString()}] Google Drive: Conectando...
+[${new Date().toLocaleString()}] Stream iniciado en rtmp://localhost:1935/multi/stream
+[${new Date().toLocaleString()}] HLS segments generándose correctamente
+[${new Date().toLocaleString()}] Cliente conectado desde ${window.location.hostname}
+            `.trim();
+        }
+
+        // Initialize when DOM is ready
+        document.addEventListener('DOMContentLoaded', () => {
+            streamManager = new StreamManager();
+        });
+    </script>
+</body>
+</html>

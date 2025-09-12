@@ -1,0 +1,10 @@
+[Unit]
+Description=Stream cleanup service - removes old HLS/DASH segments
+After=multi-stream.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/bin/bash -c 'find /var/hls -name "*.ts" -mtime +1 -delete; find /var/hls -name "*.m3u8" -mtime +1 -delete'
+ExecStart=/bin/bash -c 'find /var/dash -name "*.mp4" -mtime +1 -delete; find /var/dash -name "*.mpd" -mtime +1 -delete'
+ExecStart=/bin/bash -c 'find /var/log/stream -name "*.log" -mtime +7 -delete'
