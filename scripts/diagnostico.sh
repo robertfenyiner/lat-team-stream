@@ -151,44 +151,163 @@ check_connectivity() {
         fi
     }
     
+    # Variables para tracking
+    local connectivity_issues=()
+    local gateway_ok=false
+    local dns_ok=false
+    local internet_ok=false
+    
     # Probar IP locales
     test_connection "127.0.0.1" "Loopback local"
     
     # Probar gateway
     local gateway=$(ip route show default | awk '{print $3}' | head -1)
     if [ -n "$gateway" ]; then
-        test_connection "$gateway" "Gateway ($gateway)"
-    fi
-    
-    # Probar DNS públicos
-    test_connection "8.8.8.8" "Google DNS"
-    test_connection "1.1.1.1" "Cloudflare DNS"
-    test_connection "208.67.222.222" "OpenDNS"
-    
-    echo ""
-    
-    # Probar resolución DNS
-    echo "  Probando resolución DNS..."
-    local dns_targets=("google.com" "github.com" "ubuntu.com")
-    local dns_ok=0
-    
-    for target in "${dns_targets[@]}"; do
-        echo -n "    $target... "
-        if nslookup "$target" &> /dev/null; then
-            echo -e "${GREEN}✅ OK${NC}"
-            ((dns_ok++))
+        if test_connection "$gateway" "Gateway ($gateway)"; then
+            gateway_ok=true
         else
-            echo -e "${RED}❌ FALLO${NC}"
+            connectivity_issues+=("GATEWAY")
         fi
-    done
-    
-    if [ $dns_ok -gt 0 ]; then
-        log "INFO" "${GREEN}✅ Resolución DNS funcionando${NC}"
     else
-        log "ERROR" "${RED}❌ Resolución DNS no funciona${NC}"
+        echo "  ❌ No hay gateway configurado"
+        connectivity_issues+=("NO_GATEWAY")
+    fi
+    
+    # Solo continuar con pruebas externas si el gateway funciona
+    if [ "$gateway_ok" = true ]; then
+        # Probar DNS públicos
+        if test_connection "8.8.8.8" "Google DNS"; then
+            internet_ok=true
+        else
+            connectivity_issues+=("INTERNET")
+        fi
+        
+        test_connection "1.1.1.1" "Cloudflare DNS"
+        test_connection "208.67.222.222" "OpenDNS"
+        
+        echo ""
+        
+        # Probar resolución DNS
+        echo "  Probando resolución DNS..."
+        local dns_targets=("google.com" "github.com" "ubuntu.com")
+        local dns_success=0
+        
+        for target in "${dns_targets[@]}"; do
+            echo -n "    $target... "
+            if nslookup "$target" &> /dev/null; then
+                echo -e "${GREEN}✅ OK${NC}"
+                ((dns_success++))
+                dns_ok=true
+            else
+                echo -e "${RED}❌ FALLO${NC}"
+            fi
+        done
+        
+        if [ $dns_success -eq 0 ]; then
+            connectivity_issues+=("DNS")
+        fi
+    else
+        echo ""
+        echo -e "${RED}  ⚠️  Saltando pruebas externas - Gateway no alcanzable${NC}"
+        connectivity_issues+=("INTERNET" "DNS")
     fi
     
     echo ""
+    
+    # Diagnóstico específico basado en los problemas encontrados
+    if [ ${#connectivity_issues[@]} -gt 0 ]; then
+        log "ERROR" "${RED}🚨 Problemas de conectividad detectados${NC}"
+        echo ""
+        
+        for issue in "${connectivity_issues[@]}"; do
+            case $issue in
+                "GATEWAY"|"NO_GATEWAY")
+                    echo -e "${RED}📡 PROBLEMA DE GATEWAY:${NC}"
+                    echo "   • No se puede alcanzar el gateway de red"
+                    echo "   • Esto impide toda conectividad externa"
+                    echo ""
+                    echo -e "${YELLOW}🔧 SOLUCIONES:${NC}"
+                    echo "   1. Verificar configuración de red:"
+                    echo "      cat /etc/netplan/*.yaml"
+                    echo ""
+                    echo "   2. Verificar cable/enlace de red:"
+                    echo "      ethtool eth0 | grep 'Link detected'"
+                    echo "      ip link show eth0"
+                    echo ""
+                    echo "   3. Reiniciar interfaz de red:"
+                    echo "      ip link set eth0 down && ip link set eth0 up"
+                    echo ""
+                    echo "   4. Reiniciar servicios de red:"
+                    echo "      systemctl restart networking"
+                    echo "      systemctl restart systemd-networkd"
+                    echo ""
+                    echo "   5. Verificar con el proveedor del VPS:"
+                    echo "      - ¿El servidor está correctamente configurado?"
+                    echo "      - ¿Hay problemas en la red del datacenter?"
+                    echo ""
+                    break
+                    ;;
+                "INTERNET")
+                    if [ "$gateway_ok" = true ]; then
+                        echo -e "${YELLOW}🌐 PROBLEMA DE INTERNET:${NC}"
+                        echo "   • Gateway alcanzable, pero sin acceso a internet"
+                        echo "   • Posible problema del proveedor o firewall"
+                        echo ""
+                        echo -e "${YELLOW}🔧 SOLUCIONES:${NC}"
+                        echo "   1. Verificar firewall:"
+                        echo "      iptables -L"
+                        echo "      ufw status"
+                        echo ""
+                        echo "   2. Probar traceroute:"
+                        echo "      traceroute 8.8.8.8"
+                        echo ""
+                        echo "   3. Contactar al proveedor del VPS"
+                    fi
+                    ;;
+                "DNS")
+                    if [ "$internet_ok" = true ]; then
+                        echo -e "${BLUE}🔍 PROBLEMA DE DNS:${NC}"
+                        echo "   • Internet funciona, pero DNS no resuelve"
+                        echo ""
+                        echo -e "${YELLOW}🔧 SOLUCIONES:${NC}"
+                        echo "   1. Configurar DNS manualmente:"
+                        echo "      echo 'nameserver 8.8.8.8' > /etc/resolv.conf"
+                        echo "      echo 'nameserver 1.1.1.1' >> /etc/resolv.conf"
+                        echo ""
+                        echo "   2. Reiniciar systemd-resolved:"
+                        echo "      systemctl restart systemd-resolved"
+                    fi
+                    ;;
+            esac
+        done
+        
+        # Verificación específica para VPS
+        echo -e "${BLUE}🖥️  VERIFICACIONES ESPECÍFICAS PARA VPS:${NC}"
+        echo ""
+        echo "1. Verificar estado del enlace físico:"
+        echo "   ethtool eth0 2>/dev/null | grep -E 'Link detected|Speed|Duplex' || echo 'ethtool no disponible'"
+        echo ""
+        
+        echo "2. Verificar configuración de red actual:"
+        echo "   ip addr show eth0"
+        echo "   ip route show"
+        echo ""
+        
+        echo "3. Verificar configuración persistente:"
+        echo "   ls -la /etc/netplan/"
+        echo "   cat /etc/netplan/*.yaml 2>/dev/null || echo 'No hay archivos netplan'"
+        echo ""
+        
+        echo "4. Ver logs de red:"
+        echo "   journalctl -u networking --no-pager -n 20"
+        echo "   journalctl -u systemd-networkd --no-pager -n 20"
+        echo ""
+        
+        return 1
+    else
+        log "INFO" "${GREEN}✅ Todas las pruebas de conectividad pasaron${NC}"
+        return 0
+    fi
 }
 
 # Verificar puertos necesarios
@@ -349,5 +468,15 @@ echo "   2. Aplica cambios: sudo netplan apply"
 echo "   3. Reinicia red: sudo systemctl restart networking"
 echo "   4. Verifica DNS: sudo systemctl restart systemd-resolved"
 echo ""
-echo -e "${BLUE}📚 Para continuar con la instalación:${NC}"
+echo -e "${BLUE}�️  SOLUCIÓN RÁPIDA PARA PROBLEMA DE GATEWAY:${NC}"
+echo "   # Si el gateway no responde, intenta:"
+echo "   systemctl restart networking"
+echo "   systemctl restart systemd-networkd"
+echo "   ip link set eth0 down && ip link set eth0 up"
+echo ""
+echo -e "${BLUE}�📚 Para continuar con la instalación:${NC}"
+echo "   # Después de arreglar la red:"
 echo "   curl -fsSL https://raw.githubusercontent.com/robertfenyiner/lat-team-stream/main/install.sh | bash"
+echo ""
+echo "   # O si no puedes arreglar la red:"
+echo "   curl -fsSL https://raw.githubusercontent.com/robertfenyiner/lat-team-stream/main/install.sh | bash -s -- --skip-network"
