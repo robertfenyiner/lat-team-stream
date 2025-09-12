@@ -379,13 +379,58 @@ install_nginx_rtmp() {
         rm -rf /tmp/nginx-rtmp-build
     fi
     
-    # Verificar instalación
-    if nginx -V 2>&1 | grep -q rtmp; then
-        log "INFO" "${GREEN}✅ nginx-rtmp configurado correctamente${NC}"
+    # Verificar instalación detallada
+    log "INFO" "${BLUE}🔍 Verificando configuración de nginx-rtmp...${NC}"
+    
+    # Verificar si el módulo está compilado
+    if nginx -V 2>&1 | grep -q "rtmp"; then
+        log "INFO" "${GREEN}✅ Módulo RTMP compilado en nginx${NC}"
+        RTMP_COMPILED=true
     else
-        log "WARN" "${YELLOW}⚠️  nginx-rtmp podría no estar disponible${NC}"
+        log "WARN" "${YELLOW}⚠️  Módulo RTMP no encontrado en nginx compilado${NC}"
+        RTMP_COMPILED=false
+    fi
+    
+    # Verificar si el paquete del módulo está instalado
+    if dpkg -l | grep -q "libnginx-mod-rtmp"; then
+        log "INFO" "${GREEN}✅ Paquete libnginx-mod-rtmp instalado${NC}"
+        RTMP_PACKAGE=true
+    else
+        log "WARN" "${YELLOW}⚠️  Paquete libnginx-mod-rtmp no encontrado${NC}"
+        RTMP_PACKAGE=false
+    fi
+    
+    # Verificar si el módulo se puede cargar
+    if [ -f "/usr/lib/nginx/modules/ngx_rtmp_module.so" ]; then
+        log "INFO" "${GREEN}✅ Archivo del módulo RTMP encontrado${NC}"
+        RTMP_MODULE=true
+    else
+        log "WARN" "${YELLOW}⚠️  Archivo del módulo RTMP no encontrado${NC}"
+        RTMP_MODULE=false
+    fi
+    
+    # Mostrar resumen y recomendaciones
+    echo ""
+    echo -e "${BLUE}📊 Resumen nginx-rtmp:${NC}"
+    echo -e "   Módulo compilado: $([ "$RTMP_COMPILED" = true ] && echo "${GREEN}✅${NC}" || echo "${RED}❌${NC}")"
+    echo -e "   Paquete instalado: $([ "$RTMP_PACKAGE" = true ] && echo "${GREEN}✅${NC}" || echo "${RED}❌${NC}")"
+    echo -e "   Archivo módulo: $([ "$RTMP_MODULE" = true ] && echo "${GREEN}✅${NC}" || echo "${RED}❌${NC}")"
+    echo ""
+    
+    if [ "$RTMP_COMPILED" = true ] || [ "$RTMP_PACKAGE" = true ] || [ "$RTMP_MODULE" = true ]; then
+        log "INFO" "${GREEN}✅ nginx-rtmp configurado - streaming RTMP disponible${NC}"
+    else
+        log "WARN" "${YELLOW}⚠️  nginx-rtmp no completamente disponible${NC}"
         echo ""
-        echo -e "${YELLOW}💡 El streaming básico seguirá funcionando con HLS${NC}"
+        echo -e "${BLUE}💡 Opciones disponibles:${NC}"
+        echo "   • Streaming HLS/DASH (sin RTMP de entrada)"
+        echo "   • Conversión directa archivo → HLS"
+        echo "   • Streaming desde archivos locales"
+        echo ""
+        echo -e "${YELLOW}📝 Para habilitar RTMP completo:${NC}"
+        echo "   1. Verificar: nginx -V 2>&1 | grep rtmp"
+        echo "   2. Cargar módulo: echo 'load_module modules/ngx_rtmp_module.so;' >> /etc/nginx/nginx.conf"
+        echo "   3. Reiniciar: systemctl restart nginx"
     fi
 }
 
