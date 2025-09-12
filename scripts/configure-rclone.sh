@@ -33,12 +33,54 @@ check_rclone() {
 
 # Function to show existing remotes
 show_remotes() {
-    echo -e "${YELLOW}Remotos configurados actualmente:${NC}"
+    echo -e "${BLUE}=== Remotos configurados actualmente ===${NC}"
+    echo ""
+    
     if [ -f "$RCLONE_CONFIG_FILE" ]; then
-        rclone listremotes 2>/dev/null || echo "Ninguno configurado"
+        local remotes=$(rclone listremotes 2>/dev/null)
+        if [ -n "$remotes" ]; then
+            while IFS= read -r remote; do
+                if [ -n "$remote" ]; then
+                    remote_name=${remote%:}
+                    echo -e "${GREEN}📁 $remote_name${NC}"
+                    
+                    # Obtener tipo de remote
+                    local remote_type=$(rclone config show "$remote_name" 2>/dev/null | grep "type" | cut -d'=' -f2 | tr -d ' ')
+                    echo "   Tipo: $remote_type"
+                    
+                    # Probar conexión básica
+                    echo -n "   Estado: "
+                    if timeout 10 rclone lsd "$remote" --max-depth 1 >/dev/null 2>&1; then
+                        echo -e "${GREEN}✅ Conectado${NC}"
+                        
+                        # Mostrar algunos directorios
+                        echo "   Directorios principales:"
+                        rclone lsd "$remote" --max-depth 1 2>/dev/null | head -5 | while read -r line; do
+                            if [ -n "$line" ]; then
+                                dir_name=$(echo "$line" | awk '{print $NF}')
+                                echo "     • $dir_name"
+                            fi
+                        done
+                    else
+                        echo -e "${RED}❌ Error de conexión${NC}"
+                    fi
+                    echo ""
+                fi
+            done <<< "$remotes"
+        else
+            echo -e "${YELLOW}Ningún remoto configurado${NC}"
+        fi
     else
-        echo "Ninguno configurado"
+        echo -e "${YELLOW}Archivo de configuración no encontrado${NC}"
     fi
+    echo ""
+    
+    # Mostrar comandos útiles
+    echo -e "${BLUE}💡 Comandos útiles:${NC}"
+    echo "   rclone lsd <remoto>:          # Listar directorios"
+    echo "   rclone ls <remoto>:/path      # Listar archivos"
+    echo "   rclone mount <remoto>: /mnt   # Montar remoto"
+    echo "   rclone copy /local <remoto>:  # Copiar archivos"
     echo ""
 }
 
@@ -292,20 +334,69 @@ configure_mega() {
 
 # Function to test mounts
 test_mounts() {
-    echo -e "${BLUE}=== Probando montajes ===${NC}"
+    echo -e "${BLUE}=== Probando conexiones de remotos ===${NC}"
+    echo ""
     
-    for remote in onedrive gdrive mega; do
-        if rclone listremotes --config="$RCLONE_CONFIG_FILE" | grep -q "^${remote}:"; then
-            echo "Probando $remote..."
-            mkdir -p "/tmp/test-$remote"
+    # Obtener todos los remotos configurados
+    local remotes=$(rclone listremotes --config="$RCLONE_CONFIG_FILE" 2>/dev/null)
+    
+    if [ -z "$remotes" ]; then
+        echo -e "${YELLOW}⚠️  No hay remotos configurados para probar${NC}"
+        echo ""
+        return 1
+    fi
+    
+    while IFS= read -r remote; do
+        if [ -n "$remote" ]; then
+            remote_name=${remote%:}
+            echo -e "${BLUE}🔍 Probando $remote_name...${NC}"
             
-            if timeout 30 rclone ls "$remote:" --config="$RCLONE_CONFIG_FILE" --max-depth 1 >/dev/null 2>&1; then
-                echo -e "${GREEN}✓ $remote: Conexión exitosa${NC}"
+            # Probar conexión básica
+            echo -n "   Conexión: "
+            if timeout 15 rclone lsd "$remote" --max-depth 1 >/dev/null 2>&1; then
+                echo -e "${GREEN}✅ Exitosa${NC}"
+                
+                # Obtener información adicional
+                echo -n "   Espacio: "
+                local about_info=$(timeout 10 rclone about "$remote" 2>/dev/null)
+                if [ -n "$about_info" ]; then
+                    echo "$about_info" | grep -E "(Total|Used|Free)" | head -1 | cut -d: -f2 | tr -d ' '
+                else
+                    echo "No disponible"
+                fi
+                
+                # Contar directorios principales
+                echo -n "   Directorios: "
+                local dir_count=$(timeout 10 rclone lsd "$remote" --max-depth 1 2>/dev/null | wc -l)
+                echo "$dir_count directorios principales"
+                
+                # Verificar montaje si es posible
+                local mount_point="/mnt/${remote_name}"
+                if [ -d "$mount_point" ]; then
+                    echo -n "   Montaje: "
+                    if mountpoint -q "$mount_point" 2>/dev/null; then
+                        echo -e "${GREEN}✅ Montado en $mount_point${NC}"
+                    else
+                        echo -e "${YELLOW}⚠️  No montado (usar: rclone mount $remote $mount_point)${NC}"
+                    fi
+                fi
+                
             else
-                echo -e "${RED}✗ $remote: Error de conexión${NC}"
+                echo -e "${RED}❌ Error${NC}"
+                echo -e "   ${YELLOW}Posibles problemas:${NC}"
+                echo "     • Credenciales expiradas"
+                echo "     • Sin conexión a internet"
+                echo "     • Configuración incorrecta"
             fi
+            echo ""
         fi
-    done
+    done <<< "$remotes"
+    
+    echo -e "${BLUE}💡 Para montar remotos:${NC}"
+    echo "   rclone mount <remoto>: /mnt/<directorio> --daemon"
+    echo "   Ejemplo: rclone mount google: /mnt/gdrive --daemon"
+    echo ""
+}
     echo ""
 }
 
